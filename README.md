@@ -7,6 +7,7 @@ To install the prerequisites, follow [this instructions](https://solana.com/docs
 ```shell
 # To run the script (as tests)
 anchor build
+yarn
 anchor test
 
 # To verify the signature
