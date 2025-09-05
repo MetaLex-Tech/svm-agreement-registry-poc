@@ -1,5 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, web3 } from "@coral-xyz/anchor";
+import { signBytes, createKeyPairFromBytes, verifySignature } from "@solana/kit";
 import { SvmAgreementRegistry } from "../target/types/svm_agreement_registry";
 
 describe("svm-agreement-registry", () => {
@@ -20,7 +21,17 @@ describe("svm-agreement-registry", () => {
     // Generate keypair for the new account
     const newAccountKp = new web3.Keypair();
     console.log("newAccountKp.publicKey:", newAccountKp.publicKey);
-    const signature = Array.from({ length: 64 }, (_, index) => index);
+
+    // Sign the message
+    const message = JSON.stringify(kvPairs);
+    const messageBytes = new TextEncoder().encode(message);
+    const keyPair = await createKeyPairFromBytes(provider.wallet.payer.secretKey);
+    const signedBytes = await signBytes(keyPair.privateKey, messageBytes);
+    const signature = Array.from(signedBytes);
+
+    // TODO test: verify signature
+    // const verified = await verifySignature(keyPair.publicKey, signedBytes, messageBytes);
+    // console.log({ verified });
 
     const tx = await program.methods
       .storeData(
