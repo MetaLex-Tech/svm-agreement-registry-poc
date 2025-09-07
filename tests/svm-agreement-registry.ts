@@ -1,5 +1,5 @@
 import * as anchor from "@coral-xyz/anchor";
-import { Program, web3 } from "@coral-xyz/anchor";
+import { BorshCoder, Idl, Program, web3 } from "@coral-xyz/anchor";
 import { signBytes, createKeyPairFromBytes, generateKeyPair, getBase58Decoder } from "@solana/kit";
 import { SvmAgreementRegistry } from "../target/types/svm_agreement_registry";
 import { expect } from "chai"
@@ -17,26 +17,24 @@ describe("svm-agreement-registry", () => {
       { key: "age", value: "30"},
     ];
 
-    // Generate keypair for the new account
-    const newAccountKp = new web3.Keypair();
+    // Format and sign the message
 
-    // Sign the message
-    const message = JSON.stringify(kvPairs);
+    const serializedKvPairs = serializeKeyValuePairs(kvPairs);
 
     // Construct the message preamble as per Solana CLI (https://github.com/anza-xyz/solana-sdk/blob/fed203a9e8b2a9d3b1a0c98c004e3d1ede569d0c/offchain-message/src/lib.rs#L184-L190)
-    // TODO uncomment the missing fields once they've finally followed the spec (PR: https://github.com/anza-xyz/agave/issues/3340)
+    // TODO uncomment the missing fields once solana-cli has finally followed the spec (PR: https://github.com/anza-xyz/agave/issues/3340)
     const signingDomain = Buffer.from("\xffsolana offchain", "ascii");
     const headerVersion = Buffer.from([0]); // Version 0
     // const applicationDomain = Buffer.alloc(32); // Arbitrary 32-byte domain, can customize
     const messageFormat = Buffer.from([0]); // Message format 0 (printable chars)
     // const numSigners = Buffer.from([1]); // Single signer
     // const signerPubkey = provider.wallet.publicKey.toBuffer(); // 32-byte public key
-    const messageBytes = Buffer.from(message, "ascii");
+    // const messageBytes = Buffer.from(message, "ascii");
     const messageLength = Buffer.alloc(2);
-    messageLength.writeUInt16LE(messageBytes.length); // Little-endian u16
+    messageLength.writeUInt16LE(serializedKvPairs.length); // Little-endian u16
 
-    // Combine all parts into the final message
-    const finalMessage = Buffer.concat([
+    // Combine all parts into the formatted offchain message
+    const offchainMessage = Buffer.concat([
       signingDomain,
       headerVersion,
       // applicationDomain,
@@ -44,27 +42,19 @@ describe("svm-agreement-registry", () => {
       // numSigners,
       // signerPubkey,
       messageLength,
-      messageBytes,
+      serializedKvPairs,
     ]);
 
-    // const messageBytes = new TextEncoder().encode(message);
+    // Sign it
     const keyPair = await createKeyPairFromBytes(provider.wallet.payer.secretKey);
-    const signedBytes = await signBytes(keyPair.privateKey, new Uint8Array(finalMessage));
-    const signature = Array.from(signedBytes);
+    const signatureBytes = await signBytes(keyPair.privateKey, new Uint8Array(offchainMessage));
+    const signature = Array.from(signatureBytes);
 
-    // TODO test
-    // const publicKeyBytes = await crypto.subtle.exportKey('raw', keyPair.publicKey);
-    // console.log("publicKey:", getBase58Decoder().decode(new Uint8Array(publicKeyBytes)));
-    // console.log("publicKey:", Array.from(provider.wallet.publicKey.toBuffer()));
-
-    console.log("message:", message);
-    // console.log("finalMessage:", finalMessage);
-    console.log("signature:", getBase58Decoder().decode(signedBytes));
-    
-    // TODO test: verify signature
+    // TODO test: uncomment to verify signature locally
     // const verified = await verifySignature(keyPair.publicKey, signedBytes, finalMessage);
     // console.log({ verified });
 
+    const newDataEntryAccountKp = new web3.Keypair();
     const tx = (new web3.Transaction())
       // SvmAgreementRegistry will check if the previous instruction is a valid Ed25519 instruction, so we must call it
       // immediately before calling SvmAgreementRegistry.
@@ -72,28 +62,28 @@ describe("svm-agreement-registry", () => {
         anchor.web3.Ed25519Program.createInstructionWithPublicKey({
           // TODO Is seems to work but the error returned is weird:
           //  Error processing Instruction 0: custom program error: 0x2
-          // publicKey: newAccountKp.publicKey.toBytes(),
+          // publicKey: newDataEntryAccountKp.publicKey.toBytes(),
           // message: messageBytes,
-          publicKey: provider.wallet.payer.publicKey.toBytes(),
-          message: finalMessage,
 
-          signature: signedBytes,
+          publicKey: provider.wallet.payer.publicKey.toBytes(),
+          message: offchainMessage,
+
+          signature: signatureBytes,
         })
       )
       .add(
         await program.methods
-          .storeData(
+          .proposeAndSignAgreement(
             kvPairs,
             provider.wallet.publicKey,
             signature,
-            finalMessage,
           )
           .accounts({
-            dataEntry: newAccountKp.publicKey,
+            dataEntry: newDataEntryAccountKp.publicKey,
             signer: provider.wallet.publicKey,
             sysvarIx: web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           })
-          .signers([newAccountKp])
+          .signers([newDataEntryAccountKp])
           .instruction()
       );
 
@@ -105,7 +95,7 @@ describe("svm-agreement-registry", () => {
         tx, // The transaction
         [
           provider.wallet.payer,
-          newAccountKp
+          newDataEntryAccountKp
         ], // Signers
         {
           commitment: "confirmed", // Wait for confirmation
@@ -126,3 +116,56 @@ describe("svm-agreement-registry", () => {
     }
   });
 });
+
+function serializeKeyValuePairs(items: { key: string; value: string }[]): Uint8Array {
+  const coder = new BorshCoder({
+    "address": "11111111111111111111111111111111",
+    "metadata": {
+      "name": "placeholder",
+      "version": "0.1.0",
+      "spec": "0.1.0",
+    },
+    "instructions": [],
+    "accounts": [],
+    "types": [
+      {
+        "name": "KeyValuePairs",
+        "type": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "kvPairs",
+              "type": {
+                "vec": {
+                  "defined": {
+                    "name": "KeyValuePair"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "KeyValuePair",
+        "type": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "key",
+              "type": "string"
+            },
+            {
+              "name": "value",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    ]
+  });
+
+  return coder.types.encode("KeyValuePairs", {
+    kvPairs: items,
+  });
+}
