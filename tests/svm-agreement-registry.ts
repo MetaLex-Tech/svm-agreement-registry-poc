@@ -1,7 +1,8 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, web3 } from "@coral-xyz/anchor";
-import { signBytes, createKeyPairFromBytes, verifySignature, getBase58Decoder } from "@solana/kit";
+import { signBytes, createKeyPairFromBytes, generateKeyPair, getBase58Decoder } from "@solana/kit";
 import { SvmAgreementRegistry } from "../target/types/svm_agreement_registry";
+import { expect } from "chai"
 
 describe("svm-agreement-registry", () => {
   // Configure the client to use the local cluster.
@@ -35,7 +36,7 @@ describe("svm-agreement-registry", () => {
     messageLength.writeUInt16LE(messageBytes.length); // Little-endian u16
 
     // Combine all parts into the final message
-    const finalMessage = new Uint8Array(Buffer.concat([
+    const finalMessage = Buffer.concat([
       signingDomain,
       headerVersion,
       // applicationDomain,
@@ -44,11 +45,11 @@ describe("svm-agreement-registry", () => {
       // signerPubkey,
       messageLength,
       messageBytes,
-    ]));
+    ]);
 
     // const messageBytes = new TextEncoder().encode(message);
     const keyPair = await createKeyPairFromBytes(provider.wallet.payer.secretKey);
-    const signedBytes = await signBytes(keyPair.privateKey, finalMessage);
+    const signedBytes = await signBytes(keyPair.privateKey, new Uint8Array(finalMessage));
     const signature = Array.from(signedBytes);
 
     // TODO test
@@ -64,18 +65,64 @@ describe("svm-agreement-registry", () => {
     // const verified = await verifySignature(keyPair.publicKey, signedBytes, finalMessage);
     // console.log({ verified });
 
-    const tx = await program.methods
-      .storeData(
-        kvPairs,
-        signature,
-      )
-      .accounts({
-        dataEntry: newAccountKp.publicKey,
-        signer: provider.wallet.publicKey,
-      })
-      .signers([newAccountKp])
-      .rpc();
+    const tx = (new web3.Transaction())
+      // SvmAgreementRegistry will check if the previous instruction is a valid Ed25519 instruction, so we must call it
+      // immediately before calling SvmAgreementRegistry.
+      .add(
+        anchor.web3.Ed25519Program.createInstructionWithPublicKey({
+          // TODO Is seems to work but the error returned is weird:
+          //  Error processing Instruction 0: custom program error: 0x2
+          // publicKey: newAccountKp.publicKey.toBytes(),
+          // message: messageBytes,
+          publicKey: provider.wallet.payer.publicKey.toBytes(),
+          message: finalMessage,
 
-    // console.log("Your transaction signature", tx);
+          signature: signedBytes,
+        })
+      )
+      .add(
+        await program.methods
+          .storeData(
+            kvPairs,
+            provider.wallet.publicKey,
+            signature,
+            finalMessage,
+          )
+          .accounts({
+            dataEntry: newAccountKp.publicKey,
+            signer: provider.wallet.publicKey,
+            sysvarIx: web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          })
+          .signers([newAccountKp])
+          .instruction()
+      );
+
+    // Send tx
+    try {
+      // Send and confirm the transaction
+      const signature = await web3.sendAndConfirmTransaction(
+        provider.connection, // Use provider's connection
+        tx, // The transaction
+        [
+          provider.wallet.payer,
+          newAccountKp
+        ], // Signers
+        {
+          commitment: "confirmed", // Wait for confirmation
+        }
+      );
+
+      console.log(`Transaction successful with signature: ${signature}`);
+
+      // Optionally, verify the transaction's effects
+      const txDetails = await provider.connection.getTransaction(signature, {
+        commitment: "confirmed",
+      });
+      expect(txDetails).to.not.be.null;
+      // Add more assertions based on expected state changes
+    } catch (error) {
+      console.error("Transaction failed:", error);
+      throw error; // Fail the test on error
+    }
   });
 });
