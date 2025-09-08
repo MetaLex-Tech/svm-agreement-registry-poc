@@ -4,7 +4,9 @@ use solana_program::sysvar::instructions::{
     load_current_index_checked,
     load_instruction_at_checked,
 };
-use solana_program::secp256k1_program;
+use solana_program::{keccak, secp256k1_program};
+use hex_literal::hex;
+use crate::utils::ed25519::KeyValuePair;
 
 pub fn verify_signature(
     ix_sysvar_account_info: &AccountInfo,
@@ -51,6 +53,72 @@ pub fn verify_signature(
     }
 
     Ok(())
+}
+
+pub fn format_message(
+    kv_pairs: &Vec<KeyValuePair>,
+) -> Result<Vec<u8>> {
+    let mut encoded_message = Vec::new();
+    encoded_message.extend_from_slice(b"\x19\x01");
+    encoded_message.extend_from_slice(&domain_separator());
+    encoded_message.extend_from_slice(&hash_signature_data(kv_pairs));
+    Ok(encoded_message)
+}
+
+fn domain_separator() -> [u8; 32] {
+    const NAME: &[u8; 22] = b"CyberAgreementRegistry";
+    const VERSION: &[u8; 1] = b"1";
+    const CHAIN_ID: u64 = 1;
+    const VERIFYING_CONTRACT: [u8;20] = hex!("a9E808B8eCBB60Bb19abF026B5b863215BC4c134");
+
+    let type_hash = keccak::hash(b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    let name_hash = keccak::hash(NAME);
+    let version_hash = keccak::hash(VERSION);
+
+    // Convert chain_id to 32-byte big-endian (padded for ABI compliance)
+    let mut chain_id_padded = [0u8; 32];
+    chain_id_padded[24..].copy_from_slice(&CHAIN_ID.to_be_bytes());
+
+    // Pad verifying_contract (20-byte address) to 32 bytes (left-padded with zeros)
+    let mut verifying_contract_padded = [0u8; 32];
+    verifying_contract_padded[12..].copy_from_slice(&VERIFYING_CONTRACT);
+
+    keccak::hashv(&[
+        &type_hash.to_bytes(),
+        &name_hash.to_bytes(),
+        &version_hash.to_bytes(),
+        &chain_id_padded,
+        &verifying_contract_padded,
+    ]).to_bytes()
+}
+
+fn hash_signature_data(
+    kv_pairs: &Vec<KeyValuePair>
+) -> [u8; 32] {
+    keccak::hashv(&[
+        &keccak::hash(b"SignatureData(KeyValuePair[] kvPairs)KeyValuePair(string key,string value)").to_bytes(),
+        &hash_key_value_pairs(kv_pairs),
+    ]).to_bytes()
+}
+
+fn hash_key_value_pairs(
+    kv_pairs: &Vec<KeyValuePair>
+) -> [u8; 32] {
+    let slices: Vec<[u8; 32]> = kv_pairs.iter()
+        .map(|kv| hash_key_value_pair(kv))  // Apply converter to each &i32 (dereference with &input)
+        .collect();
+    let byte_slices: Vec<&[u8]> = slices.iter().map(|arr| arr.as_ref()).collect();
+    keccak::hashv(&byte_slices).to_bytes()
+}
+
+fn hash_key_value_pair(
+    kv_pair: &KeyValuePair
+) -> [u8; 32] {
+    keccak::hashv(&[
+        &keccak::hash(b"KeyValuePair(string key,string value)").to_bytes(),
+        &keccak::hash(kv_pair.key.as_bytes()).to_bytes(),
+        &keccak::hash(kv_pair.value.as_bytes()).to_bytes(),
+    ]).to_bytes()
 }
 
 // https://github.com/solana-foundation/solana-web3.js/blob/7d058578462d4592fa1bcf2c393729d08fa75c02/src/secp256k1-program.ts#L49-L75

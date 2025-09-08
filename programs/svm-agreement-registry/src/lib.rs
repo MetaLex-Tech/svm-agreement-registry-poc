@@ -11,7 +11,7 @@ pub mod svm_agreement_registry {
 
     pub fn propose_and_sign_agreement(
         ctx: Context<StoreData>,
-        kv_pairs: Vec<utils::offchain_message::KeyValuePair>,
+        kv_pairs: Vec<utils::ed25519::KeyValuePair>,
         signer: Pubkey,
         signature: [u8; 64],
     ) -> Result<()> {
@@ -24,7 +24,7 @@ pub mod svm_agreement_registry {
             signer,
             signature,
             // Reconstruct the message from key-value pairs
-            utils::offchain_message::format_message(&kv_pairs)?,
+            utils::ed25519::format_message(&kv_pairs)?,
         )?;
 
         let data_entry = &mut ctx.accounts.data_entry;
@@ -38,10 +38,10 @@ pub mod svm_agreement_registry {
 
     pub fn propose_and_sign_agreement_eth(
         ctx: Context<StoreData>,
-        kv_pairs: Vec<utils::offchain_message::KeyValuePair>,
+        // For demo purpose, we re-use the same key-value struct from ed25519 module
+        kv_pairs: Vec<utils::ed25519::KeyValuePair>,
         signer: [u8; 20],
         signature: [u8; 64],
-        message: Vec<u8>,
         recovery_id: u8,
     ) -> Result<()> {
         msg!("DataEntry::INIT_SPACE: {:?}", DataEntry::INIT_SPACE);
@@ -57,7 +57,8 @@ pub mod svm_agreement_registry {
             signer,
             signature,
             recovery_id,
-            message, // TODO WIP: reconstruct the message from key-value pairs
+            // Reconstruct the message from key-value pairs
+            utils::secp256k1::format_message(&kv_pairs)?,
         )?;
 
         let data_entry = &mut ctx.accounts.data_entry;
@@ -99,7 +100,7 @@ pub struct StoreData<'info> {
 #[derive(InitSpace)]
 pub struct DataEntry {
     #[max_len(25)]
-    pub kv_pairs: Vec<utils::offchain_message::KeyValuePair>,
+    pub kv_pairs: Vec<utils::ed25519::KeyValuePair>,
     pub signer: Pubkey,
     pub signature: [u8; 64],
 }

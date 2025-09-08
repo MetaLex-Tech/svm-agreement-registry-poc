@@ -19,5 +19,7 @@ idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang = "0.31.1"
+hex-literal = "0.4.1"
 solana-program = "2.3.0"
+hex = "0.4.3"
 

@@ -172,7 +172,6 @@ describe("svm-agreement-registry", () => {
             kvPairs,
             Array.from(ethers.getBytes(await ethSigner.getAddress())),
             Array.from(signatureBytes),
-            Buffer.from(typedMessageBytes),
             recoveryId,
           )
           .accounts({
