@@ -56,8 +56,8 @@ pub mod svm_agreement_registry {
             &ctx.accounts.sysvar_ix,
             signer,
             signature,
-            message,
             recovery_id,
+            message, // TODO WIP: reconstruct the message from key-value pairs
         )?;
 
         let data_entry = &mut ctx.accounts.data_entry;

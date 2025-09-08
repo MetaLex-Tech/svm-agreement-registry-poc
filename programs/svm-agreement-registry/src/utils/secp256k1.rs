@@ -10,8 +10,8 @@ pub fn verify_signature(
     ix_sysvar_account_info: &AccountInfo,
     signer: [u8; 20],
     signature: [u8; 64],
-    message: Vec<u8>,
     recovery_id: u8,
+    message: Vec<u8>,
 ) -> Result<()> {
     // Verify and extract the prior instruction (presumably an Secp256k1Program instruction for signature verification)
     let current_index = load_current_index_checked(&ix_sysvar_account_info)?;
