@@ -15,10 +15,6 @@ pub mod svm_agreement_registry {
         signer: Pubkey,
         signature: [u8; 64],
     ) -> Result<()> {
-        msg!("DataEntry::INIT_SPACE: {:?}", DataEntry::INIT_SPACE);
-        msg!("store_data from: {:?}", ctx.program_id);
-        msg!("Signer public key: {:?}", signer);
-
         // Ed25519 Program is not invokable by other programs:
         // https://docs.rs/solana-program/2.3.0/solana_program/index.html#native-programs
         // Therefore, we rely on the transaction signer to call it himself
@@ -34,6 +30,44 @@ pub mod svm_agreement_registry {
         let data_entry = &mut ctx.accounts.data_entry;
         data_entry.kv_pairs = kv_pairs;
         data_entry.signer = signer;
+        data_entry.signature = signature;
+
+        msg!("Agreement data stored!");
+        Ok(())
+    }
+
+    pub fn propose_and_sign_agreement_eth(
+        ctx: Context<StoreData>,
+        kv_pairs: Vec<utils::offchain_message::KeyValuePair>,
+        signer: [u8; 20],
+        signature: [u8; 64],
+        message: Vec<u8>,
+        recovery_id: u8,
+    ) -> Result<()> {
+        msg!("DataEntry::INIT_SPACE: {:?}", DataEntry::INIT_SPACE);
+        msg!("store_data from: {:?}", ctx.program_id);
+        msg!("Signer EVM address: {:?}", signer);
+
+        // Secp256k1 Program is not invokable by other programs:
+        // https://docs.rs/solana-program/2.3.0/solana_program/index.html#native-programs
+        // Therefore, we rely on the transaction signer to call it himself
+        // immediately before calling this method, and we will verify if he had done so correctly.
+        utils::secp256k1::verify_signature(
+            &ctx.accounts.sysvar_ix,
+            signer,
+            signature,
+            message,
+            recovery_id,
+        )?;
+
+        let data_entry = &mut ctx.accounts.data_entry;
+        data_entry.kv_pairs = kv_pairs;
+
+        // Fit EVM address
+        let mut signerAsPubkey = [0u8; 32];
+        signerAsPubkey[12..32].copy_from_slice(&signer);
+
+        data_entry.signer = Pubkey::new_from_array(signerAsPubkey);
         data_entry.signature = signature;
 
         msg!("Agreement data stored!");

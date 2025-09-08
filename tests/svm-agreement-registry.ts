@@ -3,6 +3,7 @@ import { BorshCoder, Idl, Program, web3 } from "@coral-xyz/anchor";
 import { signBytes, createKeyPairFromBytes, generateKeyPair, getBase58Decoder } from "@solana/kit";
 import { SvmAgreementRegistry } from "../target/types/svm_agreement_registry";
 import { expect } from "chai"
+import { ethers } from "ethers"
 
 describe("svm-agreement-registry", () => {
   // Configure the client to use the local cluster.
@@ -11,7 +12,7 @@ describe("svm-agreement-registry", () => {
 
   const program = anchor.workspace.svmAgreementRegistry as Program<SvmAgreementRegistry>;
 
-  it("stores data", async () => {
+  it("accepts Ed25519 signatures", async () => {
     const kvPairs: {key: string, value: string}[] = [
       { key: "name", value: "Alice"},
       { key: "age", value: "30"},
@@ -77,6 +78,99 @@ describe("svm-agreement-registry", () => {
             kvPairs,
             provider.wallet.publicKey,
             signature,
+          )
+          .accounts({
+            dataEntry: newDataEntryAccountKp.publicKey,
+            signer: provider.wallet.publicKey,
+            sysvarIx: web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          })
+          .signers([newDataEntryAccountKp])
+          .instruction()
+      );
+
+    // Send tx
+    try {
+      // Send and confirm the transaction
+      const signature = await web3.sendAndConfirmTransaction(
+        provider.connection, // Use provider's connection
+        tx, // The transaction
+        [
+          provider.wallet.payer,
+          newDataEntryAccountKp
+        ], // Signers
+        {
+          commitment: "confirmed", // Wait for confirmation
+        }
+      );
+
+      console.log(`Transaction successful with signature: ${signature}`);
+
+      // Optionally, verify the transaction's effects
+      const txDetails = await provider.connection.getTransaction(signature, {
+        commitment: "confirmed",
+      });
+      expect(txDetails).to.not.be.null;
+      // Add more assertions based on expected state changes
+    } catch (error) {
+      console.error("Transaction failed:", error);
+      throw error; // Fail the test on error
+    }
+  });
+
+  it("accepts secp256k1(EVM) signatures", async () => {
+    const kvPairs: {key: string, value: string}[] = [
+      { key: "name", value: "Alice"},
+      { key: "age", value: "30"},
+    ];
+
+    // TODO test
+    const messageTypes = ["string", "uint16"];
+    const messageValues = ["Alice", 123];
+
+    const ethSigner = new ethers.Wallet(process.env.ETH_SIGNER_PRIVATE_KEY);
+
+    // keccak256 hash of the message
+    const messageHash = ethers.solidityPackedKeccak256(
+      messageTypes,
+      messageValues,
+    );
+
+    // get hash as Uint8Array of size 32
+    const messageHashBytes: Uint8Array = ethers.getBytes(messageHash);
+
+    // Signed message that is actually this:
+    // sign(keccak256("\x19Ethereum Signed Message:\n" + len(messageHash) + messageHash)))
+    const fullSignature = await ethSigner.signMessage(messageHashBytes);
+
+    let fullSignatureBytes = ethers.getBytes(fullSignature);
+    const signatureBytes = fullSignatureBytes.slice(0, 64);
+    const recoveryIdBytes = fullSignatureBytes[64] - 27;
+
+    const offchainMessage = Buffer.concat([
+      Buffer.from('\x19Ethereum Signed Message:\n32'),
+      messageHashBytes,
+    ]);
+
+    const newDataEntryAccountKp = new web3.Keypair();
+    const tx = (new web3.Transaction())
+      // SvmAgreementRegistry will check if the previous instruction is a valid Ed25519 instruction, so we must call it
+      // immediately before calling SvmAgreementRegistry.
+      .add(
+        anchor.web3.Secp256k1Program.createInstructionWithEthAddress({
+          message: offchainMessage,
+          ethAddress: await ethSigner.getAddress(),
+          signature: signatureBytes,
+          recoveryId: recoveryIdBytes,
+        })
+      )
+      .add(
+        await program.methods
+          .proposeAndSignAgreementEth(
+            kvPairs,
+            Array.from(ethers.getBytes(await ethSigner.getAddress())),
+            Array.from(signatureBytes),
+            offchainMessage,
+            recoveryIdBytes,
           )
           .accounts({
             dataEntry: newDataEntryAccountKp.publicKey,

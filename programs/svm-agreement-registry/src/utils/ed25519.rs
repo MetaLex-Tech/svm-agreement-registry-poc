@@ -10,7 +10,7 @@ pub fn verify_signature(
     ix_sysvar_account_info: &AccountInfo,
     signer: Pubkey,
     signature: [u8; 64],
-    message: Vec<u8>, // TODO WIP: we are supposed to reconstruct the message on-chain
+    message: Vec<u8>,
 ) -> Result<()> {
     // Verify and extract the prior instruction (presumably an Ed25519Program instruction for signature verification)
     let current_index = load_current_index_checked(&ix_sysvar_account_info)?;
