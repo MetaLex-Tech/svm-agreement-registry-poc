@@ -1,19 +1,18 @@
+use std::rc::Rc;
 use anchor_lang::solana_program::sysvar;
 use anyhow::Result;
-use anchor_client::{
-    Client, Cluster,
-    solana_sdk::signature::{read_keypair_file, Keypair, Signer},
-};
+use anchor_client::{Client, Cluster, solana_sdk::signature::{read_keypair_file, Keypair, Signer}, Program};
 use solana_commitment_config::CommitmentConfig;
 use solana_ed25519_program::new_ed25519_instruction_with_signature;
-use svm_agreement_registry::utils::ed25519::{KeyValuePair, format_message};
+use svm_agreement_registry::{
+    DataEntry,
+    utils::ed25519::{KeyValuePair, format_message}
+};
 
-#[test]
-fn test_accepts_ed25519_signatures() -> Result<()> {
+fn setup() -> Result<(Program<Rc<Keypair>>, Rc<Keypair>, Keypair, Vec<KeyValuePair>)> {
     let anchor_wallet = std::env::var("ANCHOR_WALLET")?;
-    let payer = read_keypair_file(&anchor_wallet).unwrap();
-
-    let client = Client::new_with_options(Cluster::Localnet, &payer, CommitmentConfig::confirmed());
+    let payer = Rc::new(read_keypair_file(&anchor_wallet).unwrap());
+    let client = Client::new_with_options(Cluster::Localnet, payer.clone(), CommitmentConfig::confirmed());
     let svm_agreement_registry_program = client.program(svm_agreement_registry::ID)?;
 
     let data_entry = Keypair::new();
@@ -28,6 +27,13 @@ fn test_accepts_ed25519_signatures() -> Result<()> {
             value: "30".to_string(),
         },
     ];
+
+    Ok((svm_agreement_registry_program, payer, data_entry, kv_pairs))
+}
+
+#[test]
+fn test_accepts_ed25519_signatures() -> Result<()> {
+    let (svm_agreement_registry_program, payer, data_entry, kv_pairs) = setup()?;
 
     let offchain_message = format_message(&kv_pairs)?;
 
@@ -52,7 +58,7 @@ fn test_accepts_ed25519_signatures() -> Result<()> {
                     sysvar_ix: sysvar::instructions::ID,
                 })
                 .args(svm_agreement_registry::instruction::ProposeAndSignAgreement {
-                    kv_pairs,
+                    kv_pairs: kv_pairs.clone(),
                     signer: svm_agreement_registry_program.payer(),
                     signature: signature.into(),
                 })
@@ -62,7 +68,12 @@ fn test_accepts_ed25519_signatures() -> Result<()> {
         .signer(&data_entry)
         .send()?;
 
-    println!("Your transaction signature {}", tx);
+    println!("Transaction signature: {}", tx);
+
+    let data_entry_account: DataEntry = svm_agreement_registry_program.account(data_entry.pubkey())?;
+    assert_eq!(data_entry_account.kv_pairs, kv_pairs);
+    assert_eq!(data_entry_account.signer, payer.pubkey());
+
     Ok(())
 }
 

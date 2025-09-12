@@ -74,7 +74,7 @@ pub fn format_message(
     Ok(data)
 }
 
-#[derive(InitSpace, Clone, AnchorSerialize, AnchorDeserialize)]
+#[derive(InitSpace, Clone, Debug, PartialEq, AnchorSerialize, AnchorDeserialize)]
 pub struct KeyValuePair {
     #[max_len(50)]
     pub key: String,
