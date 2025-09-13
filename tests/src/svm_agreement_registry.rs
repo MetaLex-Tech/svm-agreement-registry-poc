@@ -90,11 +90,14 @@ fn test_accepts_ed25519_signatures() -> Result<()> {
 fn test_accepts_secp256k1_signatures() -> Result<()> {
     let (svm_agreement_registry_program, payer, data_entry, kv_pairs) = setup()?;
 
-    let offchain_message = format_secp256k1_message(&kv_pairs)?;
-
+    let eip712_typed_data = format_secp256k1_message(&kv_pairs)?;
+    let eip712_typed_data_digest = keccak256(&eip712_typed_data);
+    println!("eip712_typed_data_digest: {}", eip712_typed_data_digest);
     let eth_signer = env::var("ETH_SIGNER_PRIVATE_KEY")?.parse::<PrivateKeySigner>()?;
     let eth_address = eth_signer.address();
-    let full_signature = eth_signer.sign_hash_sync(&keccak256(&offchain_message))?;
+    println!("eth_address: {}", eth_address);
+    let full_signature = eth_signer.sign_hash_sync(&eip712_typed_data_digest)?;
+    println!("full_signature: {}", full_signature);
     let signature = full_signature.as_erc2098();
     let recovery_id = full_signature.recid().to_byte();
 
@@ -102,7 +105,7 @@ fn test_accepts_secp256k1_signatures() -> Result<()> {
         .request()
         .instruction(
             new_secp256k1_instruction_with_signature(
-                &offchain_message,
+                &eip712_typed_data,
                 &signature,
                 recovery_id,
                 &eth_address.into_array(),
