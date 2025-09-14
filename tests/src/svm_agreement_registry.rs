@@ -93,12 +93,12 @@ fn test_accepts_secp256k1_signatures() -> Result<()> {
     let eip712_typed_data = format_secp256k1_message(&kv_pairs)?;
     let eip712_typed_data_digest = keccak256(&eip712_typed_data);
     println!("eip712_typed_data_digest: {}", eip712_typed_data_digest);
-    let eth_signer = env::var("ETH_SIGNER_PRIVATE_KEY")?.parse::<PrivateKeySigner>()?;
+    let eth_signer = PrivateKeySigner::random();
     let eth_address = eth_signer.address();
     println!("eth_address: {}", eth_address);
     let full_signature = eth_signer.sign_hash_sync(&eip712_typed_data_digest)?;
     println!("full_signature: {}", full_signature);
-    let signature = full_signature.as_erc2098();
+    let signature = full_signature.as_bytes()[..64].try_into()?;
     let recovery_id = full_signature.recid().to_byte();
 
     let tx = svm_agreement_registry_program

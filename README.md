@@ -9,12 +9,6 @@ both SVM's Ed25519 and EVM's secp256k1 signatures, facilitated through two entry
 
 To install the prerequisites, follow [this instructions](https://solana.com/docs/intro/installation)
 
-### Environment Variables
-```shell
-# Required
-ETH_SIGNER_PRIVATE_KEY=0x...
-```
-
 ```shell
 # To run the tests
 yarn
